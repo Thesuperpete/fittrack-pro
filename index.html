@@ -3772,14 +3772,24 @@
     if (typeof google === 'undefined' || !google.script || !google.script.run) {
       window.google = window.google || {};
       window.google.script = window.google.script || {};
-      
-      const createApiProxy = (successHandler, failureHandler) => {
+
+      function makeRunner(successHandler, failureHandler) {
         return new Proxy({}, {
           get: (target, propName) => {
+            if (propName === 'withSuccessHandler') {
+              return (sh) => makeRunner(sh, failureHandler);
+            }
+            if (propName === 'withFailureHandler') {
+              return (fh) => makeRunner(successHandler, fh);
+            }
+            if (propName === 'withUserObject') {
+              return () => makeRunner(successHandler, failureHandler);
+            }
+
             return (...args) => {
               const action = propName;
               let payload = {};
-              if (args.length === 1 && typeof args[0] === 'object' && args[0] !== null) {
+              if (args.length === 1 && typeof args[0] === 'object' && args[0] !== null && !Array.isArray(args[0])) {
                 payload = args[0];
               } else if (args.length > 0) {
                 payload = { args: args };
@@ -3789,6 +3799,9 @@
                 else if (action === 'deleteWorkoutSessionForDate') payload.targetDate = args[0];
                 else if (action === 'searchExercisesLibrary') payload.query = args[0];
                 else if (action === 'addCustomExercise') payload.payload = args[0];
+                else if (action === 'getWorkoutDraft') payload.sessionKey = args[0];
+                else if (action === 'saveWorkoutDraft') { payload.sessionKey = args[0]; payload.draftData = args[1]; }
+                else if (action === 'clearWorkoutDraft') payload.sessionKey = args[0];
                 else if (action === 'savePhysiquePhoto') payload.payload = args[0];
                 else if (action === 'deletePhysiquePhoto') { payload.fileId = args[0]; payload.rowIndex = args[1]; payload.photoDate = args[2]; }
                 else if (action === 'saveLineConfig') { payload.userId = args[0]; payload.token = args[1]; payload.webAppUrl = args[2]; }
@@ -3799,7 +3812,7 @@
                 else if (action === 'deleteDietItem') payload.rowIndex = args[0];
                 else if (action === 'askGeminiAiCoach') { payload.userMsg = args[0]; payload.history = args[1]; }
               }
-              
+
               fetch(APPS_SCRIPT_BACKEND_URL, {
                 method: 'POST',
                 headers: { 'Content-Type': 'text/plain;charset=utf-8' },
@@ -3816,27 +3829,9 @@
             };
           }
         });
-      };
+      }
 
-      window.google.script.run = {
-        withSuccessHandler: function(sh) {
-          return {
-            withFailureHandler: function(fh) {
-              return createApiProxy(sh, fh);
-            },
-            ...createApiProxy(sh, null)
-          };
-        },
-        withFailureHandler: function(fh) {
-          return {
-            withSuccessHandler: function(sh) {
-              return createApiProxy(sh, fh);
-            },
-            ...createApiProxy(null, fh)
-          };
-        },
-        ...createApiProxy(null, null)
-      };
+      window.google.script.run = makeRunner(null, null);
     }
 
     /* ===== 1. CONSTANTS & STATE (4-Day Athletic Split Standard) ===== */
